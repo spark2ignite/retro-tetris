@@ -382,6 +382,167 @@ impl Game {
     }
 }
 
+// ── Dellacherie AI ───────────────────────────────────────────────────────────
+
+fn ai_norm_key(shape: &[Vec<u8>]) -> Vec<i32> {
+    let mut mr = i32::MAX;
+    let mut mc = i32::MAX;
+    for (r, row) in shape.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            if v != 0 { mr = mr.min(r as i32); mc = mc.min(c as i32); }
+        }
+    }
+    let mut cells: Vec<i32> = shape.iter().enumerate()
+        .flat_map(|(r, row)| row.iter().enumerate()
+            .filter(|(_, &v)| v != 0)
+            .map(move |(c, _)| (r as i32 - mr) * 100 + (c as i32 - mc)))
+        .collect();
+    cells.sort_unstable();
+    cells
+}
+
+/// Returns unique rotations as (rot_index, shape) pairs.
+/// rot_index is the number of CW rotations from the base — matches queue_ai_move's `rotations` arg.
+fn ai_unique_rotations(piece_type: usize) -> Vec<(i32, Vec<Vec<u8>>)> {
+    let base: Vec<Vec<u8>> = SHAPES[piece_type].iter().map(|r| r.to_vec()).collect();
+    let mut all = vec![base];
+    for _ in 0..3 { let last = all.last().unwrap().clone(); all.push(rotate_matrix(&last, 1)); }
+    let mut seen = std::collections::HashSet::new();
+    all.into_iter().enumerate()
+        .filter(|(_, s)| seen.insert(ai_norm_key(s)))
+        .map(|(i, s)| (i as i32, s))
+        .collect()
+}
+
+fn ai_col_bounds(shape: &[Vec<u8>]) -> (i32, i32) {
+    let mut min_c = i32::MAX;
+    let mut max_c = i32::MIN;
+    for row in shape {
+        for (c, &v) in row.iter().enumerate() {
+            if v != 0 { min_c = min_c.min(c as i32); max_c = max_c.max(c as i32); }
+        }
+    }
+    (min_c, max_c)
+}
+
+fn ai_can_place(board: &[u8; 200], shape: &[Vec<u8>], px: i32, py: i32) -> bool {
+    for (r, row) in shape.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            if v == 0 { continue; }
+            let br = py + r as i32;
+            let bc = px + c as i32;
+            if br >= ROWS as i32 || bc < 0 || bc >= COLS as i32 { return false; }
+            if br >= 0 && board[br as usize * COLS + bc as usize] != 0 { return false; }
+        }
+    }
+    true
+}
+
+fn ai_drop_y(board: &[u8; 200], shape: &[Vec<u8>], px: i32) -> i32 {
+    let mut y = -(shape.len() as i32);
+    while ai_can_place(board, shape, px, y + 1) { y += 1; }
+    y
+}
+
+fn ai_evaluate(board: &[u8; 200], shape: &[Vec<u8>], px: i32, py: i32) -> f64 {
+    let mut b = *board;
+    let mut p_cells: Vec<i32> = Vec::new();
+    for (r, row) in shape.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            if v == 0 { continue; }
+            let br = py + r as i32; let bc = px + c as i32;
+            if br >= 0 && br < ROWS as i32 && bc >= 0 && bc < COLS as i32 {
+                b[br as usize * COLS + bc as usize] = 1;
+                p_cells.push(br);
+            }
+        }
+    }
+
+    let mut lines_cleared = 0i32;
+    let mut eroded_cells = 0i32;
+    let mut r = ROWS as i32 - 1;
+    while r >= 0 {
+        if (0..COLS).all(|c| b[r as usize * COLS + c] != 0) {
+            lines_cleared += 1;
+            eroded_cells += p_cells.iter().filter(|&&pr| pr == r).count() as i32;
+            for rr in (1..=r as usize).rev() {
+                for c in 0..COLS { b[rr * COLS + c] = b[(rr - 1) * COLS + c]; }
+            }
+            for c in 0..COLS { b[c] = 0; }
+        } else { r -= 1; }
+    }
+
+    let (mut min_row, mut max_row) = (i32::MAX, i32::MIN);
+    for (r, row) in shape.iter().enumerate() {
+        for (c, &v) in row.iter().enumerate() {
+            if v != 0 { let pr = py + r as i32; let _ = c; min_row = min_row.min(pr); max_row = max_row.max(pr); }
+        }
+    }
+    let landing_height = ROWS as f64 - (min_row + max_row) as f64 / 2.0;
+
+    let mut row_trans = 0i32;
+    for r in 0..ROWS {
+        let mut prev = 1i32;
+        for c in 0..COLS { let cur = if b[r * COLS + c] != 0 { 1 } else { 0 }; if cur != prev { row_trans += 1; } prev = cur; }
+        if prev != 1 { row_trans += 1; }
+    }
+
+    let mut col_trans = 0i32;
+    for c in 0..COLS {
+        let mut prev = 0i32;
+        for r in 0..ROWS { let cur = if b[r * COLS + c] != 0 { 1 } else { 0 }; if cur != prev { col_trans += 1; } prev = cur; }
+        if prev != 1 { col_trans += 1; }
+    }
+
+    let mut holes = 0i32;
+    for c in 0..COLS {
+        let mut filled = false;
+        for r in 0..ROWS { if b[r * COLS + c] != 0 { filled = true; } else if filled { holes += 1; } }
+    }
+
+    let mut well_sum = 0i32;
+    for c in 0..COLS {
+        let mut depth = 0i32;
+        for r in 0..ROWS {
+            if b[r * COLS + c] == 0 {
+                let lf = c == 0 || b[r * COLS + c - 1] != 0;
+                let rf = c == COLS - 1 || b[r * COLS + c + 1] != 0;
+                if lf && rf { depth += 1; well_sum += depth; } else { depth = 0; }
+            } else { depth = 0; }
+        }
+    }
+
+    -1.0 * landing_height
+    + 1.0 * (lines_cleared * eroded_cells) as f64
+    + -1.0 * row_trans as f64
+    + -1.0 * col_trans as f64
+    + -4.0 * holes as f64
+    + -1.0 * well_sum as f64
+}
+
+/// Returns [rot_index, target_x] for the best move, or [-1, -1] if none found.
+#[wasm_bindgen]
+pub fn best_move() -> Vec<i32> {
+    let piece_type = SNAP_PIECE_TYPE.with(|t| t.get()) as usize;
+    if piece_type == 0 || piece_type > 7 { return vec![-1, -1]; }
+    let board = SNAP_BOARD.with(|b| *b.borrow());
+    let rots = ai_unique_rotations(piece_type);
+    let mut best_score = f64::NEG_INFINITY;
+    let mut best_rot = -1i32;
+    let mut best_x = 0i32;
+    for (rot_idx, shape) in &rots {
+        let (min_c, max_c) = ai_col_bounds(shape);
+        for target_x in 0..(COLS as i32 - (max_c - min_c)) {
+            let px = target_x - min_c;
+            let py = ai_drop_y(&board, shape, px);
+            if !ai_can_place(&board, shape, px, py) { continue; }
+            let score = ai_evaluate(&board, shape, px, py);
+            if score > best_score { best_score = score; best_rot = *rot_idx; best_x = target_x; }
+        }
+    }
+    if best_rot < 0 { vec![-1, -1] } else { vec![best_rot, best_x] }
+}
+
 // ── Rendering ────────────────────────────────────────────────────────────────
 fn draw_block(ctx: &CanvasRenderingContext2d, bx: f64, by: f64, color: &str, alpha: f64) {
     ctx.set_global_alpha(alpha);

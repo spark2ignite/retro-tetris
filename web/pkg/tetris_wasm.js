@@ -1,6 +1,17 @@
 /* @ts-self-types="./tetris_wasm.d.ts" */
 
 /**
+ * Returns [rot_index, target_x] for the best move, or [-1, -1] if none found.
+ * @returns {Int32Array}
+ */
+export function best_move() {
+    const ret = wasm.best_move();
+    var v1 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
  * Whether the game is in Playing state
  * @returns {boolean}
  */
@@ -239,13 +250,13 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [F64], shim_idx: 5, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h86d900319464b84f);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [F64], shim_idx: 16, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h2d1bc05f03f28453);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("KeyboardEvent")], shim_idx: 4, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h8b622b29adf37d5f);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("KeyboardEvent")], shim_idx: 14, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__hf5e46da12abc8af2);
             return ret;
         },
         __wbindgen_init_externref_table: function() {
@@ -264,12 +275,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h8b622b29adf37d5f(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h8b622b29adf37d5f(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hf5e46da12abc8af2(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hf5e46da12abc8af2(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h86d900319464b84f(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h86d900319464b84f(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__h2d1bc05f03f28453(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h2d1bc05f03f28453(arg0, arg1, arg2);
 }
 
 function addToExternrefTable0(obj) {
@@ -347,6 +358,11 @@ function debugString(val) {
     return className;
 }
 
+function getArrayI32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -358,6 +374,14 @@ function getDataViewMemory0() {
         cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
     }
     return cachedDataViewMemory0;
+}
+
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -485,6 +509,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedInt32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

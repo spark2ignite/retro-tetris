@@ -289,10 +289,9 @@
 <script type="module">
   import init, {
     queue_ai_move,
-    get_locked_board,
-    get_piece_type,
     get_spawn_count,
     get_game_active,
+    best_move,
   } from './pkg/tetris_wasm.js';
 
   // ── Full-page scaling ──────────────────────────────────────────
@@ -303,180 +302,6 @@
   }
   window.addEventListener('resize', fitToScreen);
   fitToScreen();
-
-  // ── Dellacherie AI ─────────────────────────────────────────────
-  const ROWS = 20, COLS = 10;
-
-  function rotateCW(shape) {
-    const n = shape.length;
-    const r = Array.from({length: n}, () => new Array(n).fill(0));
-    for (let row = 0; row < n; row++)
-      for (let col = 0; col < n; col++)
-        r[col][n - 1 - row] = shape[row][col];
-    return r;
-  }
-
-  function normKey(shape) {
-    let mr = Infinity, mc = Infinity;
-    for (let r = 0; r < shape.length; r++)
-      for (let c = 0; c < shape[r].length; c++)
-        if (shape[r][c]) { mr = Math.min(mr, r); mc = Math.min(mc, c); }
-    const cells = [];
-    for (let r = 0; r < shape.length; r++)
-      for (let c = 0; c < shape[r].length; c++)
-        if (shape[r][c]) cells.push((r - mr) * 100 + (c - mc));
-    return cells.sort().join(',');
-  }
-
-  const BASE = [
-    null,
-    [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // 1 I
-    [[1,1],[1,1]],                               // 2 O
-    [[0,1,0],[1,1,1],[0,0,0]],                   // 3 T
-    [[0,1,1],[1,1,0],[0,0,0]],                   // 4 S
-    [[1,1,0],[0,1,1],[0,0,0]],                   // 5 Z
-    [[1,0,0],[1,1,1],[0,0,0]],                   // 6 J
-    [[0,0,1],[1,1,1],[0,0,0]],                   // 7 L
-  ];
-
-  const ALL_ROTS = BASE.map((s) => {
-    if (!s) return null;
-    const rots = [s];
-    for (let k = 0; k < 3; k++) rots.push(rotateCW(rots[rots.length - 1]));
-    const seen = new Set(), unique = [];
-    rots.forEach((shape, rotIdx) => {
-      const key = normKey(shape);
-      if (!seen.has(key)) { seen.add(key); unique.push({ shape, rotIdx }); }
-    });
-    return unique;
-  });
-
-  function colBounds(shape) {
-    let minC = Infinity, maxC = -Infinity;
-    for (let r = 0; r < shape.length; r++)
-      for (let c = 0; c < shape[r].length; c++)
-        if (shape[r][c]) { minC = Math.min(minC, c); maxC = Math.max(maxC, c); }
-    return { minC, maxC };
-  }
-
-  function canPlace(board, shape, px, py) {
-    for (let r = 0; r < shape.length; r++)
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        const br = py + r, bc = px + c;
-        if (br >= ROWS || bc < 0 || bc >= COLS) return false;
-        if (br >= 0 && board[br * COLS + bc]) return false;
-      }
-    return true;
-  }
-
-  function dropY(board, shape, px) {
-    let y = -shape.length;
-    while (canPlace(board, shape, px, y + 1)) y++;
-    return y;
-  }
-
-  function evaluate(board, shape, px, py) {
-    const b = new Uint8Array(board);
-    const n = shape.length;
-    const pCells = [];
-    for (let r = 0; r < n; r++)
-      for (let c = 0; c < n; c++) {
-        if (!shape[r][c]) continue;
-        const br = py + r, bc = px + c;
-        if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
-          b[br * COLS + bc] = 1;
-          pCells.push(br);
-        }
-      }
-
-    let linesCleared = 0, erodedCells = 0;
-    for (let r = ROWS - 1; r >= 0; ) {
-      let full = true;
-      for (let c = 0; c < COLS; c++) if (!b[r * COLS + c]) { full = false; break; }
-      if (full) {
-        linesCleared++;
-        erodedCells += pCells.filter(pr => pr === r).length;
-        for (let rr = r; rr > 0; rr--)
-          for (let c = 0; c < COLS; c++) b[rr * COLS + c] = b[(rr - 1) * COLS + c];
-        for (let c = 0; c < COLS; c++) b[c] = 0;
-      } else r--;
-    }
-
-    let minRow = Infinity, maxRow = -Infinity;
-    for (let r = 0; r < n; r++)
-      for (let c = 0; c < n; c++)
-        if (shape[r][c]) { minRow = Math.min(minRow, py + r); maxRow = Math.max(maxRow, py + r); }
-    const landingHeight = ROWS - (minRow + maxRow) / 2.0;
-
-    let rowTrans = 0;
-    for (let r = 0; r < ROWS; r++) {
-      let prev = 1;
-      for (let c = 0; c < COLS; c++) {
-        const cur = b[r * COLS + c] ? 1 : 0;
-        if (cur !== prev) rowTrans++;
-        prev = cur;
-      }
-      if (prev !== 1) rowTrans++;
-    }
-
-    let colTrans = 0;
-    for (let c = 0; c < COLS; c++) {
-      let prev = 0;
-      for (let r = 0; r < ROWS; r++) {
-        const cur = b[r * COLS + c] ? 1 : 0;
-        if (cur !== prev) colTrans++;
-        prev = cur;
-      }
-      if (prev !== 1) colTrans++;
-    }
-
-    let holes = 0;
-    for (let c = 0; c < COLS; c++) {
-      let filled = false;
-      for (let r = 0; r < ROWS; r++) {
-        if (b[r * COLS + c]) filled = true;
-        else if (filled) holes++;
-      }
-    }
-
-    let wellSum = 0;
-    for (let c = 0; c < COLS; c++) {
-      let depth = 0;
-      for (let r = 0; r < ROWS; r++) {
-        if (!b[r * COLS + c]) {
-          const lf = c === 0 || b[r * COLS + c - 1];
-          const rf = c === COLS - 1 || b[r * COLS + c + 1];
-          if (lf && rf) { depth++; wellSum += depth; }
-          else depth = 0;
-        } else depth = 0;
-      }
-    }
-
-    return -1 * landingHeight
-         +  1 * linesCleared * erodedCells
-         + -1 * rowTrans
-         + -1 * colTrans
-         + -4 * holes
-         + -1 * wellSum;
-  }
-
-  function bestMove(pieceType, boardData) {
-    const rots = ALL_ROTS[pieceType];
-    if (!rots) return null;
-    let best = { score: -Infinity, rotIdx: 0, targetX: 0 };
-    for (const { shape, rotIdx } of rots) {
-      const { minC, maxC } = colBounds(shape);
-      for (let targetX = 0; targetX + (maxC - minC) < COLS; targetX++) {
-        const px = targetX - minC;
-        const py = dropY(boardData, shape, px);
-        if (!canPlace(boardData, shape, px, py)) continue;
-        const sc = evaluate(boardData, shape, px, py);
-        if (sc > best.score) best = { score: sc, rotIdx, targetX };
-      }
-    }
-    return best.score === -Infinity ? null : best;
-  }
 
   // ── AI state ───────────────────────────────────────────────────
   let aiEnabled = false;
@@ -503,11 +328,8 @@
     const spawnCount = get_spawn_count();
     if (spawnCount === lastSpawnCount) return;
     lastSpawnCount = spawnCount;
-    const pieceType = get_piece_type();
-    const boardData = get_locked_board();
-    if (!pieceType || !boardData) return;
-    const move = bestMove(pieceType, boardData);
-    if (move) queue_ai_move(move.rotIdx, move.targetX);
+    const move = best_move();
+    if (move[0] >= 0) queue_ai_move(move[0], move[1]);
   }
 
   // ── Boot ───────────────────────────────────────────────────────

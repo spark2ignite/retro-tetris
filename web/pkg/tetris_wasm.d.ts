@@ -2,6 +2,11 @@
 /* eslint-disable */
 
 /**
+ * Returns [rot_index, target_x] for the best move, or [-1, -1] if none found.
+ */
+export function best_move(): Int32Array;
+
+/**
  * Whether the game is in Playing state
  */
 export function get_game_active(): boolean;
@@ -37,6 +42,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly best_move: () => [number, number];
     readonly get_game_active: () => number;
     readonly get_locked_board: () => [number, number];
     readonly get_next_piece_type: () => number;
@@ -44,8 +50,8 @@ export interface InitOutput {
     readonly get_spawn_count: () => number;
     readonly queue_ai_move: (a: number, b: number) => void;
     readonly run: () => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h86d900319464b84f: (a: number, b: number, c: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h8b622b29adf37d5f: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h2d1bc05f03f28453: (a: number, b: number, c: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hf5e46da12abc8af2: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
