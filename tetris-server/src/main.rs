@@ -1,9 +1,9 @@
 use tiny_http::{Header, Response, Server};
 
 // All game assets embedded at compile time — no files needed at runtime
-const HTML: &[u8] = include_bytes!("../index.html");
-const JS:   &[u8] = include_bytes!("../pkg/tetris_wasm.js");
-const WASM: &[u8] = include_bytes!("../pkg/tetris_wasm_bg.wasm");
+const HTML: &[u8] = include_bytes!("../web/index.html");
+const JS:   &[u8] = include_bytes!("../web/pkg/tetris_wasm.js");
+const WASM: &[u8] = include_bytes!("../web/pkg/tetris_wasm_bg.wasm");
 
 fn main() {
     let addr = "127.0.0.1:8765";
