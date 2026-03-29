@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TETRIS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { width: 100%; height: 100%; }
+
+    body {
+      background: #080818;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Press Start 2P', 'Courier New', monospace;
+      color: #00ff41;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* CRT scanlines */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent 0px, transparent 3px,
+        rgba(0,0,0,0.18) 3px, rgba(0,0,0,0.18) 4px
+      );
+      pointer-events: none;
+      z-index: 200;
+    }
+
+    /* CRT vignette */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(0,0,0,0.72) 100%);
+      pointer-events: none;
+      z-index: 199;
+    }
+
+    .wrapper {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      transform-origin: center center;
+    }
+
+    /* ── Side panels ─────────────────────────────────────────── */
+    .panel {
+      width: 148px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .box {
+      border: 2px solid #00cc33;
+      padding: 10px 12px;
+      background: rgba(0,255,65,0.02);
+      box-shadow: 0 0 6px rgba(0,255,65,0.35), inset 0 0 10px rgba(0,255,65,0.04);
+    }
+
+    .box-label {
+      font-size: 6px;
+      color: #00aa22;
+      margin-bottom: 7px;
+      letter-spacing: 3px;
+      text-shadow: 0 0 4px #00ff41;
+    }
+
+    .box-value {
+      font-size: 12px;
+      color: #fff;
+      text-shadow: 0 0 6px #00ff41;
+      min-height: 18px;
+    }
+
+    #game-title {
+      font-size: 10px;
+      letter-spacing: 8px;
+      text-align: center;
+      color: #00ff41;
+      text-shadow: 0 0 8px #00ff41, 0 0 18px rgba(0,255,65,0.5);
+      padding: 10px 0 6px;
+      animation: flicker 5s infinite;
+    }
+
+    .controls-text {
+      font-size: 6px;
+      color: #009922;
+      line-height: 2.4;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Board area ──────────────────────────────────────────── */
+    #canvas-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    #board {
+      display: block;
+      border: 3px solid #00ff41;
+      box-shadow:
+        0 0 12px rgba(0,255,65,0.7),
+        0 0 35px rgba(0,255,65,0.25),
+        inset 0 0 40px rgba(0,0,0,0.5);
+    }
+
+    /* ── Overlay ─────────────────────────────────────────────── */
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4,4,20,0.90);
+      z-index: 50;
+    }
+
+    #overlay .big-title {
+      font-size: 30px;
+      color: #00ff41;
+      text-shadow: 0 0 8px #00ff41, 0 0 22px #00ff41, 0 0 55px rgba(0,255,65,0.6);
+      margin-bottom: 22px;
+      letter-spacing: 6px;
+      animation: flicker 3s infinite;
+    }
+
+    #overlay .sub-title {
+      font-size: 11px;
+      color: #ffff00;
+      text-shadow: 0 0 8px #ffff00, 0 0 18px rgba(255,255,0,0.4);
+      margin-bottom: 28px;
+      letter-spacing: 2px;
+    }
+
+    #overlay .press-start {
+      font-size: 8px;
+      color: #00ff41;
+      animation: blink 1.1s step-end infinite;
+      letter-spacing: 1px;
+    }
+
+    #overlay .final-score {
+      font-size: 8px;
+      color: #aaa;
+      margin-top: 14px;
+      letter-spacing: 1px;
+    }
+
+    /* ── AI toggle button ────────────────────────────────────── */
+    #ai-btn {
+      border: 2px solid #00cc33;
+      padding: 10px 12px;
+      background: rgba(0,255,65,0.02);
+      box-shadow: 0 0 6px rgba(0,255,65,0.35), inset 0 0 10px rgba(0,255,65,0.04);
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+
+    #ai-btn:hover {
+      background: rgba(0,255,65,0.06);
+    }
+
+    #ai-btn .box-label {
+      margin-bottom: 6px;
+    }
+
+    #ai-status {
+      font-size: 10px;
+      font-family: 'Press Start 2P', monospace;
+      color: #444;
+      text-shadow: none;
+      transition: color 0.15s, text-shadow 0.15s;
+    }
+
+    #ai-status.on {
+      color: #00ff41;
+      text-shadow: 0 0 8px #00ff41, 0 0 18px rgba(0,255,65,0.6);
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes flicker {
+      0%,88%,100% { opacity:1; }
+      90% { opacity:0.75; }
+      92% { opacity:1; }
+      94% { opacity:0.6; }
+      96% { opacity:1; }
+    }
+
+    @keyframes blink {
+      0%,100% { opacity:1; }
+      50%      { opacity:0; }
+    }
+
+    #next-canvas, #hold-canvas {
+      display: block;
+      margin: 4px auto 0;
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ── Left panel ─────────────────────────────────── -->
+  <div class="panel">
+    <div id="game-title">TETRIS</div>
+
+    <div class="box">
+      <div class="box-label">SCORE</div>
+      <div class="box-value" id="score-val">0</div>
+    </div>
+
+    <div class="box">
+      <div class="box-label">HI-SCORE</div>
+      <div class="box-value" id="hi-val">0</div>
+    </div>
+
+    <div class="box">
+      <div class="box-label">LEVEL</div>
+      <div class="box-value" id="level-val">1</div>
+    </div>
+
+    <div class="box">
+      <div class="box-label">LINES</div>
+      <div class="box-value" id="lines-val">0</div>
+    </div>
+
+    <div class="box">
+      <div class="box-label">HOLD  [C]</div>
+      <canvas id="hold-canvas" width="124" height="72"></canvas>
+    </div>
+
+    <!-- AI toggle -->
+    <div id="ai-btn" title="Press A to toggle">
+      <div class="box-label">AI  [A]</div>
+      <div id="ai-status">OFF</div>
+    </div>
+  </div>
+
+  <!-- ── Game board ─────────────────────────────────── -->
+  <div id="canvas-wrap">
+    <canvas id="board" width="300" height="600"></canvas>
+
+    <div id="overlay">
+      <div class="big-title">TETRIS</div>
+      <div class="sub-title" id="ol-sub">READY?</div>
+      <div class="press-start" id="ol-msg">PRESS ENTER TO START</div>
+      <div class="final-score" id="ol-score"></div>
+    </div>
+  </div>
+
+  <!-- ── Right panel ────────────────────────────────── -->
+  <div class="panel">
+    <div class="box">
+      <div class="box-label">NEXT</div>
+      <canvas id="next-canvas" width="124" height="96"></canvas>
+    </div>
+
+    <div class="box">
+      <div class="box-label">CONTROLS</div>
+      <div class="controls-text">
+        ← →  MOVE<br>
+        ↑    ROTATE CW<br>
+        Z    ROTATE CCW<br>
+        ↓    SOFT DROP<br>
+        SPC  HARD DROP<br>
+        C    HOLD<br>
+        A    AI MODE<br>
+        P    PAUSE<br>
+        ESC  MENU
+      </div>
+    </div>
+  </div>
+
+</div><!-- .wrapper -->
+
+<script type="module">
+  import init, {
+    queue_ai_move,
+    get_locked_board,
+    get_piece_type,
+    get_spawn_count,
+    get_game_active,
+  } from './pkg/tetris_wasm.js';
+
+  // ── Full-page scaling ──────────────────────────────────────────
+  const NATURAL_W = 624, NATURAL_H = 640;
+  function fitToScreen() {
+    const scale = Math.min(window.innerWidth / NATURAL_W, window.innerHeight / NATURAL_H) * 0.97;
+    document.querySelector('.wrapper').style.transform = `scale(${scale})`;
+  }
+  window.addEventListener('resize', fitToScreen);
+  fitToScreen();
+
+  // ── Dellacherie AI ─────────────────────────────────────────────
+  const ROWS = 20, COLS = 10;
+
+  function rotateCW(shape) {
+    const n = shape.length;
+    const r = Array.from({length: n}, () => new Array(n).fill(0));
+    for (let row = 0; row < n; row++)
+      for (let col = 0; col < n; col++)
+        r[col][n - 1 - row] = shape[row][col];
+    return r;
+  }
+
+  function normKey(shape) {
+    let mr = Infinity, mc = Infinity;
+    for (let r = 0; r < shape.length; r++)
+      for (let c = 0; c < shape[r].length; c++)
+        if (shape[r][c]) { mr = Math.min(mr, r); mc = Math.min(mc, c); }
+    const cells = [];
+    for (let r = 0; r < shape.length; r++)
+      for (let c = 0; c < shape[r].length; c++)
+        if (shape[r][c]) cells.push((r - mr) * 100 + (c - mc));
+    return cells.sort().join(',');
+  }
+
+  const BASE = [
+    null,
+    [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // 1 I
+    [[1,1],[1,1]],                               // 2 O
+    [[0,1,0],[1,1,1],[0,0,0]],                   // 3 T
+    [[0,1,1],[1,1,0],[0,0,0]],                   // 4 S
+    [[1,1,0],[0,1,1],[0,0,0]],                   // 5 Z
+    [[1,0,0],[1,1,1],[0,0,0]],                   // 6 J
+    [[0,0,1],[1,1,1],[0,0,0]],                   // 7 L
+  ];
+
+  const ALL_ROTS = BASE.map((s) => {
+    if (!s) return null;
+    const rots = [s];
+    for (let k = 0; k < 3; k++) rots.push(rotateCW(rots[rots.length - 1]));
+    const seen = new Set(), unique = [];
+    rots.forEach((shape, rotIdx) => {
+      const key = normKey(shape);
+      if (!seen.has(key)) { seen.add(key); unique.push({ shape, rotIdx }); }
+    });
+    return unique;
+  });
+
+  function colBounds(shape) {
+    let minC = Infinity, maxC = -Infinity;
+    for (let r = 0; r < shape.length; r++)
+      for (let c = 0; c < shape[r].length; c++)
+        if (shape[r][c]) { minC = Math.min(minC, c); maxC = Math.max(maxC, c); }
+    return { minC, maxC };
+  }
+
+  function canPlace(board, shape, px, py) {
+    for (let r = 0; r < shape.length; r++)
+      for (let c = 0; c < shape[r].length; c++) {
+        if (!shape[r][c]) continue;
+        const br = py + r, bc = px + c;
+        if (br >= ROWS || bc < 0 || bc >= COLS) return false;
+        if (br >= 0 && board[br * COLS + bc]) return false;
+      }
+    return true;
+  }
+
+  function dropY(board, shape, px) {
+    let y = -shape.length;
+    while (canPlace(board, shape, px, y + 1)) y++;
+    return y;
+  }
+
+  function evaluate(board, shape, px, py) {
+    const b = new Uint8Array(board);
+    const n = shape.length;
+    const pCells = [];
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++) {
+        if (!shape[r][c]) continue;
+        const br = py + r, bc = px + c;
+        if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
+          b[br * COLS + bc] = 1;
+          pCells.push(br);
+        }
+      }
+
+    let linesCleared = 0, erodedCells = 0;
+    for (let r = ROWS - 1; r >= 0; ) {
+      let full = true;
+      for (let c = 0; c < COLS; c++) if (!b[r * COLS + c]) { full = false; break; }
+      if (full) {
+        linesCleared++;
+        erodedCells += pCells.filter(pr => pr === r).length;
+        for (let rr = r; rr > 0; rr--)
+          for (let c = 0; c < COLS; c++) b[rr * COLS + c] = b[(rr - 1) * COLS + c];
+        for (let c = 0; c < COLS; c++) b[c] = 0;
+      } else r--;
+    }
+
+    let minRow = Infinity, maxRow = -Infinity;
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++)
+        if (shape[r][c]) { minRow = Math.min(minRow, py + r); maxRow = Math.max(maxRow, py + r); }
+    const landingHeight = ROWS - (minRow + maxRow) / 2.0;
+
+    let rowTrans = 0;
+    for (let r = 0; r < ROWS; r++) {
+      let prev = 1;
+      for (let c = 0; c < COLS; c++) {
+        const cur = b[r * COLS + c] ? 1 : 0;
+        if (cur !== prev) rowTrans++;
+        prev = cur;
+      }
+      if (prev !== 1) rowTrans++;
+    }
+
+    let colTrans = 0;
+    for (let c = 0; c < COLS; c++) {
+      let prev = 0;
+      for (let r = 0; r < ROWS; r++) {
+        const cur = b[r * COLS + c] ? 1 : 0;
+        if (cur !== prev) colTrans++;
+        prev = cur;
+      }
+      if (prev !== 1) colTrans++;
+    }
+
+    let holes = 0;
+    for (let c = 0; c < COLS; c++) {
+      let filled = false;
+      for (let r = 0; r < ROWS; r++) {
+        if (b[r * COLS + c]) filled = true;
+        else if (filled) holes++;
+      }
+    }
+
+    let wellSum = 0;
+    for (let c = 0; c < COLS; c++) {
+      let depth = 0;
+      for (let r = 0; r < ROWS; r++) {
+        if (!b[r * COLS + c]) {
+          const lf = c === 0 || b[r * COLS + c - 1];
+          const rf = c === COLS - 1 || b[r * COLS + c + 1];
+          if (lf && rf) { depth++; wellSum += depth; }
+          else depth = 0;
+        } else depth = 0;
+      }
+    }
+
+    return -1 * landingHeight
+         +  1 * linesCleared * erodedCells
+         + -1 * rowTrans
+         + -1 * colTrans
+         + -4 * holes
+         + -1 * wellSum;
+  }
+
+  function bestMove(pieceType, boardData) {
+    const rots = ALL_ROTS[pieceType];
+    if (!rots) return null;
+    let best = { score: -Infinity, rotIdx: 0, targetX: 0 };
+    for (const { shape, rotIdx } of rots) {
+      const { minC, maxC } = colBounds(shape);
+      for (let targetX = 0; targetX + (maxC - minC) < COLS; targetX++) {
+        const px = targetX - minC;
+        const py = dropY(boardData, shape, px);
+        if (!canPlace(boardData, shape, px, py)) continue;
+        const sc = evaluate(boardData, shape, px, py);
+        if (sc > best.score) best = { score: sc, rotIdx, targetX };
+      }
+    }
+    return best.score === -Infinity ? null : best;
+  }
+
+  // ── AI state ───────────────────────────────────────────────────
+  let aiEnabled = false;
+  let lastSpawnCount = -1;
+
+  const aiBtn    = document.getElementById('ai-btn');
+  const aiStatus = document.getElementById('ai-status');
+
+  function setAI(on) {
+    aiEnabled = on;
+    aiStatus.textContent = on ? 'ON' : 'OFF';
+    aiStatus.className   = on ? 'on' : '';
+    if (on) lastSpawnCount = get_spawn_count(); // don't replay current piece
+  }
+
+  aiBtn.addEventListener('click', () => setAI(!aiEnabled));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'a' || e.key === 'A') setAI(!aiEnabled);
+  });
+
+  function aiTick() {
+    if (!aiEnabled || !get_game_active()) return;
+    const spawnCount = get_spawn_count();
+    if (spawnCount === lastSpawnCount) return;
+    lastSpawnCount = spawnCount;
+    const pieceType = get_piece_type();
+    const boardData = get_locked_board();
+    if (!pieceType || !boardData) return;
+    const move = bestMove(pieceType, boardData);
+    if (move) queue_ai_move(move.rotIdx, move.targetX);
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────
+  await init();
+  setInterval(aiTick, 50);
+</script>
+</body>
+</html>

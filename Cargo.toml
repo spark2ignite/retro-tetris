@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "tetris-server",
+    "tetris-wasm",
+]
+resolver = "2"

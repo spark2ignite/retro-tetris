@@ -1,0 +1,12 @@
+[package]
+name = "tetris-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tiny_http = "0.12"
+open = "5"
+
+[profile.release]
+opt-level = "s"
+strip = true
