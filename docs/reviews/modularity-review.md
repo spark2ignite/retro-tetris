@@ -1,128 +1,97 @@
 # Modularity Review
 
-**Scope**: Retro Tetris (Rust/WASM) — full codebase (`tetris-wasm`, `web/`, `tetris-server`)
+**Scope**: Retro Tetris (Rust/WASM) — post-refactor, full codebase (`tetris-wasm`, `web/`, `tetris-server`)
 **Date**: 2026-03-29
 
 ## Executive Summary
 
-Retro Tetris is a browser-based Tetris game built in Rust compiled to WebAssembly, served by a self-contained Rust binary. The project has three components with clean boundaries: game logic in `tetris-wasm`, a JavaScript frontend with an embedded Dellacherie AI in `web/`, and a minimal HTTP server in `tetris-server`. The overall [modularity](https://coupling.dev/posts/core-concepts/modularity/) is healthy — one significant issue and one minor operational concern were found. No urgent restructuring is needed.
-
-The most important finding is that the JavaScript AI re-implements Tetris domain knowledge already defined in Rust (piece shapes, rotation, placement), creating [implicit model coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) that will silently break if the game rules are ever extended.
+Retro Tetris is a browser Tetris game built in Rust compiled to WebAssembly, with a Dellacherie AI, served by a self-contained Rust binary. The previous significant issue — JavaScript duplicating the Rust game model — has been fully resolved: all AI evaluation now lives in `lib.rs` and the JS is a thin orchestrator calling a single `best_move()` export. The overall [modularity](https://coupling.dev/posts/core-concepts/modularity/) is healthy. Two minor issues remain, both tolerable at the current scale and [volatility](https://coupling.dev/posts/dimensions-of-coupling/volatility/).
 
 ## Coupling Overview
 
 | Integration | [Strength](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) | [Distance](https://coupling.dev/posts/dimensions-of-coupling/distance/) | [Volatility](https://coupling.dev/posts/dimensions-of-coupling/volatility/) | [Balanced?](https://coupling.dev/posts/core-concepts/balance/) |
 |---|---|---|---|---|
-| `web/index.html` (AI) → `tetris-wasm` | [Functional](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) + implicit [Model](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) | Low (same binary, same team) | Low (stable game rules) | No — strength exceeds distance |
-| `tetris-server` → `web/` assets | [Functional](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) (file paths, MIME types) | Very low (same crate, compile-time) | Low (wasm-pack output format rarely changes) | Yes |
-| `web/index.html` → `web/pkg/` (WASM loader) | [Contract](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) (`#[wasm_bindgen]` exports) | Very low (same binary) | Low | Yes |
+| `web/index.html` (AI) → `tetris-wasm` | [Contract](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) (`#[wasm_bindgen]` exports) | Very low (same binary, same team) | Low | Yes ✓ |
+| `tetris-server` → `web/` assets | [Functional](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) (file paths, MIME types) | Very low (same crate, compile-time) | Low | Yes ✓ |
+| `ai_evaluate()` → `Game::clear_lines()` logic | [Functional](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) (duplicated line-clear algorithm) | Zero (same file) | Low | Yes (distance saves it) |
 
 ---
 
-## Issue: JavaScript AI Duplicates the Rust Game Model
+## Issue: Line-Clear Logic Exists in Two Places Within `lib.rs`
 
-**Integration**: `web/index.html` → `tetris-wasm/src/lib.rs`
-**Severity**: Significant
-
-### Knowledge Leakage
-
-The JavaScript Dellacherie AI re-implements core Tetris domain knowledge that already lives authoritatively in Rust. This is [implicit model coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) — the shared knowledge is the game's rules and data representation, but it exists in two places with no explicit contract between them:
-
-| Knowledge | Rust (`lib.rs`) | JS (`index.html`) |
-|---|---|---|
-| Board dimensions | `const COLS: usize = 10; const ROWS: usize = 20;` | `const ROWS = 20, COLS = 10;` (line 308) |
-| Piece shapes | `SHAPES` array (lines 23–32) | `BASE` array (lines 331–340) |
-| Rotation logic | `rotate_matrix()` (lines 122–133) | `rotateCW()` (lines 310–316) |
-| Placement check | `fits()` (lines 140–152) | `canPlace()` (lines 362–370) |
-| Drop simulation | `ghost_row()` (lines 154–157) | `dropY()` (lines 373–377) |
-
-The AI does use proper exported functions (`queue_ai_move`, `get_locked_board`, `get_piece_type`, `get_spawn_count`) for its integration contract — but the evaluation logic duplicates the model rather than delegating to it.
-
-### Complexity Impact
-
-A developer modifying the game model in `lib.rs` — adding wall kicks, changing board dimensions, introducing a new rotation system — has no signal that corresponding changes are required in the JavaScript AI. There is no compile-time error, no runtime error, and no test that would catch the drift. The AI will continue to run and appear to work while computing placements based on outdated rules. This is a hidden [coupling](https://coupling.dev/posts/core-concepts/coupling/) that exceeds the cognitive capacity of a single change: modifying one function in Rust silently invalidates five functions in JavaScript.
-
-### Cascading Changes
-
-Any of the following changes in `tetris-wasm` would require manual, undiscoverable updates in `web/index.html`:
-
-- Changing `COLS` or `ROWS` — the AI's board indexing breaks silently.
-- Modifying piece shapes or adding a new piece type — the AI evaluates against the old shapes.
-- Changing rotation semantics (e.g. implementing SRS wall kicks) — AI rotations diverge from actual game rotations.
-- Changing the board encoding in `get_locked_board()` — the AI's `canPlace()` would misread the board.
-
-Because the [distance](https://coupling.dev/posts/dimensions-of-coupling/distance/) is low (same repo, same team), the cascading change itself is cheap — but it is *invisible*, which makes it dangerous.
-
-### Recommended Improvement
-
-Move the Dellacherie evaluation into `tetris-wasm` and export only the result. Add a single `#[wasm_bindgen]` function:
-
-```rust
-/// Returns (rotations, target_x) for the best move given the current state.
-#[wasm_bindgen]
-pub fn best_move() -> Vec<i32> { ... }
-```
-
-The JavaScript AI becomes a thin orchestrator — it polls `get_spawn_count()`, calls `best_move()`, and passes the result to `queue_ai_move()`. All piece shapes, rotation logic, and placement simulation remain in Rust with a single source of truth.
-
-**Trade-off:** This adds ~100 lines to `lib.rs` and requires the AI toggle logic to stay in JS (which is fine — it's UI behaviour, not game logic). The benefit is that any future change to the game model is automatically reflected in the AI, and the integration is fully expressed through the existing `#[wasm_bindgen]` [contract coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) pattern already in use.
-
----
-
-## Issue: Build Pipeline Ordering Has No Enforcement
-
-**Integration**: `tetris-server` → `web/pkg/` (compiled WASM artifacts)
+**Integration**: `ai_evaluate()` → `Game::clear_lines()` (both in `tetris-wasm/src/lib.rs`)
 **Severity**: Minor
 
 ### Knowledge Leakage
 
-`tetris-server` embeds compiled WASM artifacts at build time via `include_bytes!`:
+Both functions implement "scan for full rows, remove them, shift the board down":
 
-```rust
-const HTML: &[u8] = include_bytes!("../web/index.html");
-const JS:   &[u8] = include_bytes!("../web/pkg/tetris_wasm.js");
-const WASM: &[u8] = include_bytes!("../web/pkg/tetris_wasm_bg.wasm");
-```
+- `Game::clear_lines()` (lines 297–314) — the authoritative game implementation; also updates score, level, and drop interval.
+- `ai_evaluate()` (lines 461–473) — a simulation copy used to count cleared lines and eroded cells for the Dellacherie heuristic.
 
-The server knows the specific file paths and format of `wasm-pack` output. There is a mandatory build order — `wasm-pack build` must precede `cargo build --release` — but this ordering is undocumented in the tooling and enforced only by README instructions.
+The shared knowledge is the board mutation rule for a cleared line. The simulation version correctly omits the score/level side effects — but the row-scanning and shifting logic is written twice. This is [functional coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) at zero [distance](https://coupling.dev/posts/dimensions-of-coupling/distance/).
 
 ### Complexity Impact
 
-A developer who modifies `tetris-wasm/src/lib.rs` and runs `cargo build` without first running `wasm-pack build` will produce a server binary containing stale game logic. Cargo will not warn them. The binary will compile and run. The mismatch between `lib.rs` and `web/pkg/` is invisible until the game behaves incorrectly at runtime.
+Because this is entirely within `lib.rs`, the distance is zero. A developer modifying `clear_lines` has no signal that `ai_evaluate` contains a structural duplicate. If the line-clearing rule ever changes — adding cascade clears, gravity after clearing, or Tetris-style "flash then remove" timing — both locations must be updated manually. The [coupling](https://coupling.dev/posts/core-concepts/coupling/) is implicit: no function call, no shared type, just parallel implementations of the same rule.
 
 ### Cascading Changes
 
-- Modifying any exported `#[wasm_bindgen]` function in `lib.rs` → must rebuild `web/pkg/` → must rebuild `tetris-server`. Currently: two manual steps with no dependency tracking.
-- Adding a new WASM export used in `index.html` → same three-step chain, all manual.
+The scenarios that trigger a cascade are narrow but real:
 
-Because [volatility](https://coupling.dev/posts/dimensions-of-coupling/volatility/) is low (the build artifact format rarely changes) and distance is very low, this is tolerable. But it will silently mislead contributors.
+- Changing the board's row representation (e.g., from `Vec<Vec<u8>>` to a bitmask) would require updating both clearing loops independently.
+- Adding combo detection or T-spin recognition to `clear_lines` would need a matching update in `ai_evaluate` to keep the AI's predictions accurate.
+
+Because distance is zero and [volatility](https://coupling.dev/posts/dimensions-of-coupling/volatility/) is low, this is tolerable now. It becomes a maintenance hazard if board representation or clearing semantics change.
 
 ### Recommended Improvement
 
-Add a `Makefile` at the repo root:
+Extract a pure board-simulation function that takes a board snapshot and placed piece cells, clears full rows, and returns the result. Both `clear_lines` and `ai_evaluate` call it. Because distance is already zero (same file), this is a refactor with no architectural cost — just a helper function:
 
-```makefile
-.PHONY: wasm server run
-
-wasm:
-	wasm-pack build tetris-wasm --target web --out-dir ../web/pkg
-
-server: wasm
-	cargo build --release -p tetris-server
-
-run: server
-	./target/release/tetris-server
+```rust
+/// Simulate locking piece cells onto board, clear full rows.
+/// Returns (new_board, lines_cleared, eroded_piece_cells).
+fn simulate_lock(board: &[u8; 200], piece_cells: &[(usize, usize)]) -> ([u8; 200], i32, i32) { ... }
 ```
 
-Alternatively, a `build.rs` in `tetris-server` can emit a `cargo:rerun-if-changed=../tetris-wasm/src/lib.rs` directive and check that `web/pkg/tetris_wasm_bg.wasm` exists and is not older than `lib.rs`, printing a warning if the artifacts are stale. The Makefile is simpler and more visible to contributors.
+`Game::clear_lines` calls this and applies score/level updates on top. `ai_evaluate` calls this to get the post-lock board for heuristic computation. The line-clearing rule lives in exactly one place.
+
+---
+
+## Issue: Orphaned Public API Exports
+
+**Integration**: `web/index.html` → `tetris-wasm` public API surface
+**Severity**: Minor
+
+### Knowledge Leakage
+
+After the refactor, two `#[wasm_bindgen]` exports are no longer called by any consumer:
+
+- `get_locked_board() -> Vec<u8>` (line 77)
+- `get_piece_type() -> u8` (line 83)
+
+They remain compiled into `web/pkg/tetris_wasm_bg.wasm` and declared in `web/pkg/tetris_wasm.js` and `web/pkg/tetris_wasm.d.ts`. They add surface area to the public [contract](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) that future maintainers must understand and reason about — even though they serve no current consumer.
+
+### Complexity Impact
+
+A developer reading `lib.rs` sees two exports with doc comments explaining their JS-facing purpose. Since `index.html` no longer imports them, the gap between "what the API advertises" and "what is actually used" creates confusion: are these intentionally kept for future use, or are they forgotten leftovers? `#[wasm_bindgen]` prevents the Rust compiler from flagging them as dead code, so the noise is permanent unless explicitly removed.
+
+### Cascading Changes
+
+There are no cascading changes today. The risk is purely cognitive: orphaned exports accumulate into dead-code noise that makes the API harder to understand and maintain over time.
+
+### Recommended Improvement
+
+Remove `get_locked_board` and `get_piece_type` from the `#[wasm_bindgen]` public API. If retained as internal helpers, remove the `#[wasm_bindgen]` attribute and keep them as private Rust functions — the compiler will then enforce their usage. If unused entirely, delete them. Rebuilding `web/pkg/` after removal will shrink the generated JS/WASM slightly and tighten the public contract.
 
 ---
 
 ## What Is Working Well
 
-- **`tetris-server` is appropriately thin.** It has no game knowledge — just file paths and MIME types. Its [functional coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) to `web/` matches its very low [distance](https://coupling.dev/posts/dimensions-of-coupling/distance/).
-- **The WASM/JS integration contract is well-designed.** The `SNAP_*` thread-locals and `#[wasm_bindgen]` exports (`queue_ai_move`, `get_locked_board`, etc.) form an explicit, stable [contract](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/). The AI is correctly a consumer of this contract.
-- **Module boundaries map cleanly to build units.** Game logic, presentation, and serving are in separate crates/files with no circular dependencies. The [balance](https://coupling.dev/posts/core-concepts/balance/) between strength, distance, and volatility is correct for two out of three integrations.
+- **The significant issue from the previous review is fully resolved.** The JavaScript AI no longer contains any Tetris domain knowledge. The refactored `aiTick()` is 6 lines: poll `get_spawn_count()`, call `best_move()`, forward to `queue_ai_move()`. All piece shapes, rotation logic, placement simulation, and Dellacherie scoring live in Rust with a single source of truth.
+- **The `best_move()` → `queue_ai_move()` contract is minimal and explicit.** The boundary between JS and Rust is a two-element `Vec<i32>` with a documented sentinel value (`-1`). No game model knowledge crosses the boundary. This is textbook [contract coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) at near-zero distance.
+- **`tetris-server` remains appropriately thin.** No game knowledge; low-strength [functional coupling](https://coupling.dev/posts/dimensions-of-coupling/integration-strength/) to `web/` assets; build ordering is now explicit via `Makefile`.
+- **All integrations are [balanced](https://coupling.dev/posts/core-concepts/balance/).** No integration is both unbalanced and volatile. The [modularity](https://coupling.dev/posts/core-concepts/modularity/) improvements from the previous review cycle are holding.
 
 ---
 
