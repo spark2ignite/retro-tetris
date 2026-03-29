@@ -3,9 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const best_move: () => [number, number];
 export const get_game_active: () => number;
-export const get_locked_board: () => [number, number];
 export const get_next_piece_type: () => number;
-export const get_piece_type: () => number;
 export const get_spawn_count: () => number;
 export const queue_ai_move: (a: number, b: number) => void;
 export const run: () => void;

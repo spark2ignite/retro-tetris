@@ -72,18 +72,6 @@ pub fn queue_ai_move(rotations: i32, target_x: i32) {
     AI_XPOS.with(|x| x.set(target_x));
 }
 
-/// JS reads the locked board (200 bytes, 0=empty 1=filled)
-#[wasm_bindgen]
-pub fn get_locked_board() -> Vec<u8> {
-    SNAP_BOARD.with(|b| b.borrow().to_vec())
-}
-
-/// JS reads current piece type (1-7)
-#[wasm_bindgen]
-pub fn get_piece_type() -> u8 {
-    SNAP_PIECE_TYPE.with(|t| t.get())
-}
-
 /// JS reads next piece type (1-7)
 #[wasm_bindgen]
 pub fn get_next_piece_type() -> u8 {
@@ -136,6 +124,19 @@ fn rotate_matrix(m: &Vec<Vec<u8>>, dir: i32) -> Vec<Vec<u8>> {
 type Board = Vec<Vec<u8>>;
 
 fn empty_board() -> Board { vec![vec![0u8; COLS]; ROWS] }
+
+fn count_and_clear_lines(board: &mut Board) -> u32 {
+    let mut n = 0u32;
+    let mut r = ROWS as i32 - 1;
+    while r >= 0 {
+        if board[r as usize].iter().all(|&v| v != 0) {
+            board.remove(r as usize);
+            board.insert(0, vec![0u8; COLS]);
+            n += 1;
+        } else { r -= 1; }
+    }
+    n
+}
 
 fn fits(board: &Board, matrix: &Vec<Vec<u8>>, x: i32, y: i32) -> bool {
     for (r, row) in matrix.iter().enumerate() {
@@ -295,15 +296,7 @@ impl Game {
     }
 
     fn clear_lines(&mut self) {
-        let mut n = 0u32;
-        let mut r = ROWS as i32 - 1;
-        while r >= 0 {
-            if self.board[r as usize].iter().all(|&v| v != 0) {
-                self.board.remove(r as usize);
-                self.board.insert(0, vec![0u8; COLS]);
-                n += 1;
-            } else { r -= 1; }
-        }
+        let n = count_and_clear_lines(&mut self.board);
         if n > 0 {
             self.score += SCORE_TABLE[n.min(4) as usize] * self.level;
             self.lines_cleared += n;
@@ -458,19 +451,17 @@ fn ai_evaluate(board: &[u8; 200], shape: &[Vec<u8>], px: i32, py: i32) -> f64 {
         }
     }
 
-    let mut lines_cleared = 0i32;
-    let mut eroded_cells = 0i32;
-    let mut r = ROWS as i32 - 1;
-    while r >= 0 {
-        if (0..COLS).all(|c| b[r as usize * COLS + c] != 0) {
-            lines_cleared += 1;
-            eroded_cells += p_cells.iter().filter(|&&pr| pr == r).count() as i32;
-            for rr in (1..=r as usize).rev() {
-                for c in 0..COLS { b[rr * COLS + c] = b[(rr - 1) * COLS + c]; }
-            }
-            for c in 0..COLS { b[c] = 0; }
-        } else { r -= 1; }
-    }
+    // Count piece cells on full rows before clearing (eroded = piece cells that vanish)
+    let eroded_cells: i32 = p_cells.iter()
+        .filter(|&&pr| pr >= 0 && (0..COLS).all(|c| b[pr as usize * COLS + c] != 0))
+        .count() as i32;
+
+    // Clear lines via shared helper
+    let mut b_2d: Board = (0..ROWS)
+        .map(|r| (0..COLS).map(|c| b[r * COLS + c]).collect())
+        .collect();
+    let lines_cleared = count_and_clear_lines(&mut b_2d) as i32;
+    for r in 0..ROWS { for c in 0..COLS { b[r * COLS + c] = b_2d[r][c]; } }
 
     let (mut min_row, mut max_row) = (i32::MAX, i32::MIN);
     for (r, row) in shape.iter().enumerate() {

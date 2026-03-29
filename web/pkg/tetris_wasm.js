@@ -21,31 +21,11 @@ export function get_game_active() {
 }
 
 /**
- * JS reads the locked board (200 bytes, 0=empty 1=filled)
- * @returns {Uint8Array}
- */
-export function get_locked_board() {
-    const ret = wasm.get_locked_board();
-    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v1;
-}
-
-/**
  * JS reads next piece type (1-7)
  * @returns {number}
  */
 export function get_next_piece_type() {
     const ret = wasm.get_next_piece_type();
-    return ret;
-}
-
-/**
- * JS reads current piece type (1-7)
- * @returns {number}
- */
-export function get_piece_type() {
-    const ret = wasm.get_piece_type();
     return ret;
 }
 
@@ -361,11 +341,6 @@ function debugString(val) {
 function getArrayI32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
-}
-
-function getArrayU8FromWasm0(ptr, len) {
-    ptr = ptr >>> 0;
-    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
 let cachedDataViewMemory0 = null;

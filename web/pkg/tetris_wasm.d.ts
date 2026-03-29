@@ -12,19 +12,9 @@ export function best_move(): Int32Array;
 export function get_game_active(): boolean;
 
 /**
- * JS reads the locked board (200 bytes, 0=empty 1=filled)
- */
-export function get_locked_board(): Uint8Array;
-
-/**
  * JS reads next piece type (1-7)
  */
 export function get_next_piece_type(): number;
-
-/**
- * JS reads current piece type (1-7)
- */
-export function get_piece_type(): number;
 
 /**
  * Increments each spawn — JS polls this to know when a new piece appeared
@@ -44,9 +34,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly best_move: () => [number, number];
     readonly get_game_active: () => number;
-    readonly get_locked_board: () => [number, number];
     readonly get_next_piece_type: () => number;
-    readonly get_piece_type: () => number;
     readonly get_spawn_count: () => number;
     readonly queue_ai_move: (a: number, b: number) => void;
     readonly run: () => void;
